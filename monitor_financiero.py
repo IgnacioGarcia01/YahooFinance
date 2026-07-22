@@ -140,6 +140,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .cal-row:nth-child(odd) { background: #f8fafc; }
 .cal-tick { font-family: 'IBM Plex Mono', monospace; font-weight: 700; color: #0f2d5e; }
 .cal-evt { color: #64748b; }
+.cal-eps { color: #94a3b8; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
 .cal-date { font-weight: 700; color: #1a4fa8; }
 
 /* Commodities grid */
@@ -479,10 +480,11 @@ def render_calendar():
             if not val:
                 continue
             dates = val if isinstance(val, (list, tuple)) else [val]
+            eps_est = cal.get("Earnings Average") if key == "Earnings Date" else None
             for d in dates:
                 if d is None:
                     continue
-                events.append((d, t, label))
+                events.append((d, t, label, eps_est))
     events.sort(key=lambda e: e[0])
     if not events:
         st.warning(
@@ -493,11 +495,14 @@ def render_calendar():
         )
         return
     rows_html = ""
-    for d, t, label in events:
+    for d, t, label, eps_est in events:
+        evt_html = label
+        if eps_est is not None:
+            evt_html += f' <span class="cal-eps">EPS est. {eps_est:.2f}</span>'
         rows_html += (
             f'<div class="cal-row">'
             f'<span class="cal-tick">{t}</span>'
-            f'<span class="cal-evt">{label}</span>'
+            f'<span class="cal-evt">{evt_html}</span>'
             f'<span class="cal-date">{fmt_date(d)}</span>'
             f'</div>'
         )
