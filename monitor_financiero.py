@@ -1,6 +1,5 @@
 import calendar as calmod
 import datetime as dt
-import random
 import time
 
 import pandas as pd
@@ -183,10 +182,11 @@ def load_history(tickers: tuple) -> dict:
     return out
 
 
-def _fetch_with_retries(fn, attempts=3):
-    """Yahoo's quoteSummary endpoint (used by .get_info()/.calendar) is more
-    prone to transient rate-limiting than the chart endpoint, especially from
-    shared cloud IPs. Retry a few times with backoff before giving up."""
+def _fetch_with_retries(fn, attempts=2):
+    """Yahoo's quoteSummary endpoint (used by .get_info()/.calendar) is often
+    hard-blocked (not just transient) from shared cloud IPs, so this stays
+    cheap: one quick retry, no long backoff — with ~19 tickers a slow retry
+    loop would stall the whole page for a minute or more."""
     for i in range(attempts):
         try:
             result = fn()
@@ -195,7 +195,7 @@ def _fetch_with_retries(fn, attempts=3):
         except Exception:
             pass
         if i < attempts - 1:
-            time.sleep(1.0 * (i + 1) + random.uniform(0, 0.5))
+            time.sleep(0.4)
     return {}
 
 
