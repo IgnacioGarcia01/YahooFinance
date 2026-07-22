@@ -2,6 +2,8 @@ import calendar as calmod
 import datetime as dt
 import time
 
+import altair as alt
+import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
@@ -55,7 +57,12 @@ COMMODITIES = [
     ("ETH-USD", "Ethereum"),
 ]
 
-TREASURY_10Y = "^TNX"
+TREASURY_MATURITIES = [
+    (2, "2YY=F", "2Y"),
+    (5, "^FVX", "5Y"),
+    (10, "^TNX", "10Y"),
+    (30, "^TYX", "30Y"),
+]
 
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
@@ -169,24 +176,32 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .detail-price .p { font-size: 1.6rem; font-weight: 800; font-family: 'IBM Plex Mono', monospace; color: #1e293b; }
 .detail-summary { font-size: 0.82rem; color: #475569; line-height: 1.55; margin-top: 12px; }
 
-.fund-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+.fund-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px; }
 .fund-item { background: #f8fafc; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; }
 .fund-item .k { font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.6px; color: #94a3b8; font-weight: 700; }
 .fund-item .v { font-size: 0.95rem; font-weight: 700; color: #0f2d5e; font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+
+.st-key-fund_card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; margin-bottom: 14px; }
+.chart-label {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.6px; color: #94a3b8; margin-bottom: 6px;
+}
 
 .earn-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 12px 14px; margin-top: 6px; }
 .earn-box .k { font-size: 0.68rem; color: #4338ca; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
 .earn-box .v { font-size: 0.95rem; color: #312e81; font-weight: 700; margin-top: 2px; }
 
-/* Tasa 10Y recuadro */
+/* Tasas de referencia (recuadros) */
 .rate-box {
     background: linear-gradient(135deg, #0f2d5e 0%, #1a4fa8 100%);
-    color: white; border-radius: 14px; padding: 16px 20px; max-width: 260px;
+    color: white; border-radius: 14px; padding: 16px 20px; width: 100%;
     box-shadow: 0 6px 20px rgba(15,45,94,0.25);
 }
 .rate-box .rl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1.2px; opacity: 0.75; font-weight: 700; }
 .rate-box .rv { font-size: 1.9rem; font-weight: 800; font-family: 'IBM Plex Mono', monospace; margin-top: 4px; }
 .rate-box .rd { font-size: 0.74rem; margin-top: 6px; font-family: 'IBM Plex Mono', monospace; opacity: 0.95; }
+
+.st-key-yield_curve_card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; margin: 4px 0 14px; }
 
 /* Calendario mensual */
 .cal-months { display: flex; flex-wrap: wrap; gap: 16px; }
@@ -366,7 +381,7 @@ with head_r:
 # ─────────────────────────────────────────────────────────────────────────────
 # WATCHLIST
 # ─────────────────────────────────────────────────────────────────────────────
-ALL_SYMBOLS = TICKERS + [sym for sym, _ in COMMODITIES] + [TREASURY_10Y]
+ALL_SYMBOLS = TICKERS + [sym for sym, _ in COMMODITIES] + [sym for _, sym, _ in TREASURY_MATURITIES]
 history = load_history(tuple(ALL_SYMBOLS))
 changes_by_ticker = {t: compute_changes(history.get(t, pd.Series(dtype=float))) for t in TICKERS}
 
@@ -480,12 +495,18 @@ def render_detail(ticker):
         f'<div class="fund-item"><div class="k">{k}</div><div class="v">{v}</div></div>'
         for k, v in fund_items
     )
-    st.markdown(f"""
-    <div class="detail-card">
-        <div class="section-title" style="margin-top:0;">Fundamentals</div>
-        <div class="fund-grid">{fund_html}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    with st.container(key="fund_card"):
+        st.markdown('<div class="section-title" style="margin-top:0;">Fundamentals</div>', unsafe_allow_html=True)
+        fund_col, chart_col = st.columns([1, 1.15], gap="medium")
+        with fund_col:
+            st.markdown(f'<div class="fund-grid">{fund_html}</div>', unsafe_allow_html=True)
+        with chart_col:
+            st.markdown('<div class="chart-label">Precio histórico (2 años)</div>', unsafe_allow_html=True)
+            price_series = history.get(ticker)
+            if price_series is not None and not price_series.empty:
+                st.line_chart(price_series, color="#1a4fa8", height=260)
+            else:
+                st.caption("Sin datos históricos disponibles.")
 
     # Earnings / dividendos
     earn_date = fmt_date(cal.get("Earnings Date"))
@@ -519,28 +540,57 @@ else:
     render_watchlist()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TASA UST 10Y (recuadro chico)
+# TASAS DE REFERENCIA + CURVA DE TREASURIES
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Tasa de referencia</div>', unsafe_allow_html=True)
-rate_col, _ = st.columns([1, 3])
-with rate_col:
-    rate_ch = compute_changes(history.get(TREASURY_10Y, pd.Series(dtype=float)))
-    if rate_ch is None:
-        st.markdown(
-            '<div class="rate-box"><div class="rl">UST 10Y</div>'
-            '<div class="rv">—</div><div class="rd">Sin datos</div></div>',
-            unsafe_allow_html=True,
+rate_cols = st.columns(len(TREASURY_MATURITIES))
+curve_points = []
+for col, (duration, sym, label) in zip(rate_cols, TREASURY_MATURITIES):
+    with col:
+        rate_ch = compute_changes(history.get(sym, pd.Series(dtype=float)))
+        if rate_ch is None:
+            st.markdown(
+                f'<div class="rate-box"><div class="rl">UST {label}</div>'
+                '<div class="rv">—</div><div class="rd">Sin datos</div></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            bps = (rate_ch["last"] - rate_ch["prev"]) * 100
+            st.markdown(
+                '<div class="rate-box">'
+                f'<div class="rl">Tasa UST {label}</div>'
+                f'<div class="rv">{rate_ch["last"]:.2f}%</div>'
+                f'<div class="rd">{bps:+.0f} pb hoy · YTD {fmt_pct(rate_ch["ytd"])}</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            curve_points.append((duration, rate_ch["last"]))
+
+if len(curve_points) >= 2:
+    with st.container(key="yield_curve_card"):
+        st.markdown('<div class="section-title" style="margin-top:0;">Curva de rendimientos</div>', unsafe_allow_html=True)
+        durations = np.array([p[0] for p in curve_points], dtype=float)
+        yields = np.array([p[1] for p in curve_points], dtype=float)
+        a, b = np.polyfit(np.log(durations), yields, 1)
+        x_smooth = np.linspace(durations.min(), durations.max(), 100)
+        y_smooth = a * np.log(x_smooth) + b
+
+        points_df = pd.DataFrame({"Duración": durations, "Rendimiento": yields})
+        curve_df = pd.DataFrame({"Duración": x_smooth, "Rendimiento": y_smooth})
+
+        line = alt.Chart(curve_df).mark_line(color="#1a4fa8", strokeWidth=2.5).encode(
+            x=alt.X("Duración", title="Duración (años)"),
+            y=alt.Y("Rendimiento", title="Rendimiento (%)"),
         )
-    else:
-        bps = (rate_ch["last"] - rate_ch["prev"]) * 100
-        st.markdown(
-            '<div class="rate-box">'
-            '<div class="rl">Tasa UST 10Y</div>'
-            f'<div class="rv">{rate_ch["last"]:.2f}%</div>'
-            f'<div class="rd">{bps:+.0f} pb hoy · YTD {fmt_pct(rate_ch["ytd"])}</div>'
-            '</div>',
-            unsafe_allow_html=True,
+        points = alt.Chart(points_df).mark_point(size=100, filled=True, color="#0f2d5e").encode(
+            x="Duración",
+            y="Rendimiento",
+            tooltip=[alt.Tooltip("Duración", title="Años"), alt.Tooltip("Rendimiento", title="Rend. %", format=".2f")],
         )
+        chart = (line + points).properties(height=280).configure_axis(
+            grid=True, gridColor="#f1f5f9", domainColor="#e2e8f0", labelColor="#64748b", titleColor="#475569",
+        ).configure_view(strokeWidth=0)
+        st.altair_chart(chart, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # COMMODITIES
