@@ -1,3 +1,4 @@
+import calendar as calmod
 import datetime as dt
 import random
 import time
@@ -9,7 +10,32 @@ import yfinance as yf
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURACIÓN
 # ─────────────────────────────────────────────────────────────────────────────
-TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
+TICKERS = [
+    "NVDA", "AAPL", "GOOGL", "MSFT", "AMZN", "TSM", "META", "MELI", "CEG",
+    "FCX", "NU", "VALE", "B", "VST", "GLOB", "SKHY", "NFLX", "JPM", "IREN",
+]
+
+TICKER_NAMES = {
+    "NVDA": "NVIDIA",
+    "AAPL": "Apple",
+    "GOOGL": "Alphabet",
+    "MSFT": "Microsoft",
+    "AMZN": "Amazon",
+    "TSM": "Taiwan Semiconductor",
+    "META": "Meta Platforms",
+    "MELI": "MercadoLibre",
+    "CEG": "Constellation Energy",
+    "FCX": "Freeport-McMoRan",
+    "NU": "Nu Holdings",
+    "VALE": "Vale",
+    "B": "Barrick Mining",
+    "VST": "Vistra",
+    "GLOB": "Globant",
+    "SKHY": "SK Hynix (ADR)",
+    "NFLX": "Netflix",
+    "JPM": "JPMorgan Chase",
+    "IREN": "IREN Limited",
+}
 
 COMMODITIES = [
     ("CL=F", "WTI Crudo"),
@@ -31,9 +57,11 @@ COMMODITIES = [
 
 TREASURY_10Y = "^TNX"
 
-CACHE_TTL_PRICES = 300   # 5 min
-CACHE_TTL_INFO = 900     # 15 min
-CACHE_TTL_NEWS = 300     # 5 min
+MESES_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
+DIAS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
 st.set_page_config(
     page_title="Monitor Financiero",
@@ -67,49 +95,10 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     letter-spacing: 1.2px; color: #64748b; margin: 18px 0 8px;
 }
 
-/* News carousel */
-.news-scroll {
-    display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 12px;
-    scroll-snap-type: x mandatory;
-}
-.news-scroll::-webkit-scrollbar { height: 6px; }
-.news-scroll::-webkit-scrollbar-thumb { background: #bfdbfe; border-radius: 4px; }
-.news-card {
-    flex: 0 0 260px; scroll-snap-align: start; background: white;
-    border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;
-    text-decoration: none; color: inherit; display: flex; flex-direction: column;
-    transition: box-shadow 0.15s ease;
-}
-.news-card:hover { box-shadow: 0 4px 16px rgba(15,45,94,0.15); border-color: #93c5fd; }
-.news-thumb { width: 100%; height: 110px; object-fit: cover; background: #eef2fb; }
-.news-thumb-placeholder {
-    width: 100%; height: 110px; background: linear-gradient(135deg, #eff6ff, #dbeafe);
-    display: flex; align-items: center; justify-content: center; font-size: 28px;
-}
-.news-body { padding: 10px 12px 12px; }
-.news-title {
-    font-size: 0.78rem; font-weight: 600; color: #0f2d5e; line-height: 1.3;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-    min-height: 3.1em;
-}
-.news-meta { font-size: 0.66rem; color: #94a3b8; margin-top: 8px; display: flex; justify-content: space-between; }
-.news-meta b { color: #1a4fa8; }
-
-/* Ticker cards */
-.ticker-card {
-    background: white; border: 1px solid #e2e8f0; border-radius: 12px;
-    padding: 14px 16px 10px; margin-bottom: 4px;
-}
-.ticker-card.active { border: 2px solid #1a4fa8; background: #f8fbff; }
-.ticker-sym { font-size: 1.05rem; font-weight: 800; color: #0f2d5e; font-family: 'IBM Plex Mono', monospace; }
-.ticker-name { font-size: 0.68rem; color: #94a3b8; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ticker-price { font-size: 1.3rem; font-weight: 700; color: #1e293b; font-family: 'IBM Plex Mono', monospace; margin-bottom: 8px; }
-.ticker-deltas { display: flex; gap: 6px; flex-wrap: wrap; }
 .pill {
     font-size: 0.66rem; font-weight: 700; padding: 3px 7px; border-radius: 6px;
     font-family: 'IBM Plex Mono', monospace;
 }
-.pill-lbl { opacity: 0.65; font-weight: 500; margin-right: 3px; }
 .pos { background: #dcfce7; color: #15803d; }
 .neg { background: #fee2e2; color: #b91c1c; }
 .flat { background: #f1f5f9; color: #64748b; }
@@ -136,24 +125,6 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .earn-box .k { font-size: 0.68rem; color: #4338ca; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
 .earn-box .v { font-size: 0.95rem; color: #312e81; font-weight: 700; margin-top: 2px; }
 
-.cal-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 0.78rem; }
-.cal-row:nth-child(odd) { background: #f8fafc; }
-.cal-tick { font-family: 'IBM Plex Mono', monospace; font-weight: 700; color: #0f2d5e; }
-.cal-evt { color: #64748b; }
-.cal-eps { color: #94a3b8; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
-.cal-date { font-weight: 700; color: #1a4fa8; }
-
-/* Commodities grid */
-.commodity-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 4px; }
-.commodity-card {
-    background: white; border: 1px solid #e2e8f0; border-radius: 12px;
-    padding: 12px 14px 10px;
-}
-.commodity-sym { font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
-.commodity-name { font-size: 0.86rem; font-weight: 700; color: #0f2d5e; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.commodity-price { font-size: 1.05rem; font-weight: 700; color: #1e293b; font-family: 'IBM Plex Mono', monospace; margin-bottom: 8px; }
-.commodity-deltas { display: flex; gap: 5px; flex-wrap: wrap; }
-
 /* Tasa 10Y recuadro */
 .rate-box {
     background: linear-gradient(135deg, #0f2d5e 0%, #1a4fa8 100%);
@@ -164,14 +135,41 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .rate-box .rv { font-size: 1.9rem; font-weight: 800; font-family: 'IBM Plex Mono', monospace; margin-top: 4px; }
 .rate-box .rd { font-size: 0.74rem; margin-top: 6px; font-family: 'IBM Plex Mono', monospace; opacity: 0.95; }
 
+/* Calendario mensual */
+.cal-months { display: flex; flex-wrap: wrap; gap: 16px; }
+.cal-month-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px; flex: 1 1 320px; min-width: 300px; }
+.cal-month-title { font-size: 0.84rem; font-weight: 800; color: #0f2d5e; margin-bottom: 8px; }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px; }
+.cal-weekday { font-size: 0.6rem; font-weight: 700; text-align: center; color: #94a3b8; text-transform: uppercase; }
+.cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-day { min-height: 54px; border-radius: 6px; padding: 3px 2px; background: #f8fafc; }
+.cal-day-out { opacity: 0.3; }
+.cal-day-has { background: #eff6ff; border: 1px solid #bfdbfe; }
+.cal-daynum { font-size: 0.64rem; font-weight: 700; color: #475569; text-align: right; padding-right: 2px; }
+.cal-events { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
+.cal-badge {
+    font-size: 0.52rem; font-weight: 700; padding: 1px 3px; border-radius: 4px; text-align: center;
+    font-family: 'IBM Plex Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: default;
+}
+.cal-badge.earn { background: #dbeafe; color: #1e40af; }
+.cal-badge.div { background: #dcfce7; color: #15803d; }
+.cal-badge.exdiv { background: #fef3c7; color: #92400e; }
+.cal-badge.more { background: #f1f5f9; color: #64748b; }
+.cal-legend { display: flex; gap: 14px; margin: 4px 0 14px; font-size: 0.7rem; color: #64748b; }
+.cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cal-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
 .stButton>button { border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATA HELPERS
+# (sin ttl: los datos solo se refrescan cuando se presiona "Actualizar",
+#  que llama a st.cache_data.clear())
 # ─────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=CACHE_TTL_PRICES, show_spinner=False)
+@st.cache_data(show_spinner=False)
 def load_history(tickers: tuple) -> dict:
     data = yf.download(list(tickers), period="2y", interval="1d",
                         group_by="ticker", auto_adjust=False, progress=False)
@@ -201,48 +199,14 @@ def _fetch_with_retries(fn, attempts=3):
     return {}
 
 
-@st.cache_data(ttl=CACHE_TTL_INFO, show_spinner=False)
+@st.cache_data(show_spinner=False)
 def load_info(ticker: str) -> dict:
     return _fetch_with_retries(lambda: yf.Ticker(ticker).get_info() or {})
 
 
-@st.cache_data(ttl=CACHE_TTL_INFO, show_spinner=False)
+@st.cache_data(show_spinner=False)
 def load_calendar(ticker: str) -> dict:
     return _fetch_with_retries(lambda: yf.Ticker(ticker).calendar or {})
-
-
-@st.cache_data(ttl=CACHE_TTL_NEWS, show_spinner=False)
-def load_news(tickers: tuple) -> list:
-    items = []
-    seen_titles = set()
-    for t in tickers:
-        try:
-            raw = yf.Ticker(t).news or []
-        except Exception:
-            raw = []
-        for n in raw:
-            c = n.get("content", n)  # newer yfinance nests fields under "content"
-            title = c.get("title")
-            if not title or title in seen_titles:
-                continue
-            seen_titles.add(title)
-            link = (c.get("clickThroughUrl") or {}).get("url") \
-                or (c.get("canonicalUrl") or {}).get("url") \
-                or n.get("link", "")
-            publisher = (c.get("provider") or {}).get("displayName") or n.get("publisher", "Yahoo Finance")
-            pub_date = c.get("pubDate") or c.get("displayTime")
-            thumb = None
-            th = c.get("thumbnail")
-            if th and th.get("resolutions"):
-                thumb = th["resolutions"][-1]["url"]
-            items.append({
-                "ticker": t, "title": title, "link": link,
-                "publisher": publisher, "pub_date": pub_date, "thumb": thumb,
-            })
-    def sort_key(it):
-        return it["pub_date"] or ""
-    items.sort(key=sort_key, reverse=True)
-    return items[:15]
 
 
 def compute_changes(close: pd.Series):
@@ -309,22 +273,28 @@ def fmt_date(d):
     return str(d)
 
 
-def time_ago(iso_str):
-    if not iso_str:
-        return ""
-    try:
-        ts = pd.Timestamp(iso_str)
-        if ts.tzinfo is not None:
-            ts = ts.tz_convert(None)
-        delta = pd.Timestamp.now("UTC").tz_localize(None) - ts
-        hours = delta.total_seconds() / 3600
-        if hours < 1:
-            return f"hace {int(delta.total_seconds()//60)} min"
-        if hours < 24:
-            return f"hace {int(hours)} h"
-        return f"hace {int(hours//24)} d"
-    except Exception:
-        return ""
+def style_pct_col(v):
+    if pd.isna(v):
+        return "color:#94a3b8;"
+    if v > 0.005:
+        return "color:#15803d; font-weight:700;"
+    if v < -0.005:
+        return "color:#b91c1c; font-weight:700;"
+    return "color:#64748b; font-weight:700;"
+
+
+def build_watchlist_table(rows):
+    df = pd.DataFrame(rows, columns=["Ticker", "Empresa", "Precio", "Día %", "YTD %"])
+    styled = (
+        df.style
+        .map(style_pct_col, subset=["Día %", "YTD %"])
+        .format({
+            "Precio": lambda v: fmt_money(v) if pd.notna(v) else "—",
+            "Día %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+            "YTD %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+        })
+    )
+    return styled
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -342,173 +312,50 @@ with head_l:
     <div class="app-header">
         <div>
             <h1>📈 Monitor Financiero</h1>
-            <p>Datos de mercado vía Yahoo Finance (yfinance) — 15-20 min de demora</p>
+            <p>Datos de mercado vía Yahoo Finance (yfinance) — se actualiza solo al presionar Actualizar</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 with head_r:
     st.write("")
-    if st.button("🔄 Actualizar", use_container_width=True):
+    if st.button("🔄 Actualizar", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NOTICIAS (deslizamiento horizontal)
-# ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Noticias</div>', unsafe_allow_html=True)
-news_items = load_news(tuple(TICKERS))
-if news_items:
-    cards_html = ""
-    for it in news_items:
-        thumb_html = (f'<img class="news-thumb" src="{it["thumb"]}">' if it["thumb"]
-                      else '<div class="news-thumb-placeholder">📰</div>')
-        cards_html += (
-            f'<a class="news-card" href="{it["link"]}" target="_blank" rel="noopener">'
-            f'{thumb_html}'
-            f'<div class="news-body">'
-            f'<div class="news-title">{it["title"]}</div>'
-            f'<div class="news-meta"><b>{it["ticker"]}</b><span>{it["publisher"]} · {time_ago(it["pub_date"])}</span></div>'
-            f'</div></a>'
-        )
-    st.markdown(f'<div class="news-scroll">{cards_html}</div>', unsafe_allow_html=True)
-else:
-    st.caption("No hay noticias disponibles en este momento.")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TICKERS
+# WATCHLIST
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
 ALL_SYMBOLS = TICKERS + [sym for sym, _ in COMMODITIES] + [TREASURY_10Y]
 history = load_history(tuple(ALL_SYMBOLS))
 changes_by_ticker = {}
 
-cols = st.columns(len(TICKERS))
-for col, ticker in zip(cols, TICKERS):
+watchlist_rows = []
+for ticker in TICKERS:
     ch = compute_changes(history.get(ticker, pd.Series(dtype=float)))
     changes_by_ticker[ticker] = ch
-    with col:
-        is_active = st.session_state.selected_ticker == ticker
-        if ch is None:
-            st.markdown(f"""
-            <div class="ticker-card"><div class="ticker-sym">{ticker}</div>
-            <div class="ticker-name">Sin datos</div></div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="ticker-card {'active' if is_active else ''}">
-                <div class="ticker-sym">{ticker}</div>
-                <div class="ticker-price">{fmt_money(ch['last'])}</div>
-                <div class="ticker-deltas">
-                    <span class="pill {pct_class(ch['daily'])}"><span class="pill-lbl">Día</span>{fmt_pct(ch['daily'])}</span>
-                    <span class="pill {pct_class(ch['mtd'])}"><span class="pill-lbl">MTD</span>{fmt_pct(ch['mtd'])}</span>
-                    <span class="pill {pct_class(ch['ytd'])}"><span class="pill-lbl">YTD</span>{fmt_pct(ch['ytd'])}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        label = "Ocultar detalle" if is_active else "Ver detalle"
-        if st.button(label, key=f"sel_{ticker}", use_container_width=True):
-            st.session_state.selected_ticker = None if is_active else ticker
-            st.rerun()
+    watchlist_rows.append({
+        "Ticker": ticker,
+        "Empresa": TICKER_NAMES.get(ticker, ticker),
+        "Precio": ch["last"] if ch else None,
+        "Día %": ch["daily"] if ch else None,
+        "YTD %": ch["ytd"] if ch else None,
+    })
+
+watchlist_event = st.dataframe(
+    build_watchlist_table(watchlist_rows),
+    hide_index=True,
+    width='stretch',
+    on_select="rerun",
+    selection_mode="single-row",
+    key="watchlist_table",
+)
+selected_rows = list(watchlist_event.selection.rows) if watchlist_event and watchlist_event.selection else []
+st.session_state.selected_ticker = TICKERS[selected_rows[0]] if selected_rows else None
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TASA UST 10Y (recuadro chico)
+# DETALLE (solo si hay un ticker seleccionado)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Tasa de referencia</div>', unsafe_allow_html=True)
-rate_col, _ = st.columns([1, 3])
-with rate_col:
-    rate_ch = compute_changes(history.get(TREASURY_10Y, pd.Series(dtype=float)))
-    if rate_ch is None:
-        st.markdown(
-            '<div class="rate-box"><div class="rl">UST 10Y</div>'
-            '<div class="rv">—</div><div class="rd">Sin datos</div></div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        bps = (rate_ch["last"] - rate_ch["prev"]) * 100
-        st.markdown(
-            '<div class="rate-box">'
-            '<div class="rl">Tasa UST 10Y</div>'
-            f'<div class="rv">{rate_ch["last"]:.2f}%</div>'
-            f'<div class="rd">{bps:+.0f} pb hoy · YTD {fmt_pct(rate_ch["ytd"])}</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-# ─────────────────────────────────────────────────────────────────────────────
-# COMMODITIES
-# ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Commodities</div>', unsafe_allow_html=True)
-commodity_cards_html = ""
-for sym, name in COMMODITIES:
-    ch = compute_changes(history.get(sym, pd.Series(dtype=float)))
-    if ch is None:
-        commodity_cards_html += (
-            '<div class="commodity-card">'
-            f'<div class="commodity-sym">{sym}</div>'
-            f'<div class="commodity-name">{name}</div>'
-            '<div class="commodity-price">—</div>'
-            '</div>'
-        )
-    else:
-        commodity_cards_html += (
-            '<div class="commodity-card">'
-            f'<div class="commodity-sym">{sym}</div>'
-            f'<div class="commodity-name">{name}</div>'
-            f'<div class="commodity-price">{fmt_money(ch["last"])}</div>'
-            '<div class="commodity-deltas">'
-            f'<span class="pill {pct_class(ch["daily"])}"><span class="pill-lbl">Día</span>{fmt_pct(ch["daily"])}</span>'
-            f'<span class="pill {pct_class(ch["ytd"])}"><span class="pill-lbl">YTD</span>{fmt_pct(ch["ytd"])}</span>'
-            '</div></div>'
-        )
-st.markdown(f'<div class="commodity-grid">{commodity_cards_html}</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CALENDARIO + DETALLE
-# ─────────────────────────────────────────────────────────────────────────────
-selected = st.session_state.selected_ticker
-
-def render_calendar():
-    st.markdown('<div class="section-title">Calendario</div>', unsafe_allow_html=True)
-    events = []
-    for t in TICKERS:
-        cal = load_calendar(t)
-        if not cal:
-            continue
-        for label, key in [("Earnings", "Earnings Date"), ("Dividendo", "Dividend Date"),
-                            ("Ex-Dividendo", "Ex-Dividend Date")]:
-            val = cal.get(key)
-            if not val:
-                continue
-            dates = val if isinstance(val, (list, tuple)) else [val]
-            eps_est = cal.get("Earnings Average") if key == "Earnings Date" else None
-            for d in dates:
-                if d is None:
-                    continue
-                events.append((d, t, label, eps_est))
-    events.sort(key=lambda e: e[0])
-    if not events:
-        st.warning(
-            "No se pudieron cargar los eventos del calendario. Yahoo Finance a veces "
-            "limita temporalmente estas consultas desde servidores en la nube — probá "
-            "tocar 🔄 Actualizar en un momento.",
-            icon="⚠️",
-        )
-        return
-    rows_html = ""
-    for d, t, label, eps_est in events:
-        evt_html = label
-        if eps_est is not None:
-            evt_html += f' <span class="cal-eps">EPS est. {eps_est:.2f}</span>'
-        rows_html += (
-            f'<div class="cal-row">'
-            f'<span class="cal-tick">{t}</span>'
-            f'<span class="cal-evt">{evt_html}</span>'
-            f'<span class="cal-date">{fmt_date(d)}</span>'
-            f'</div>'
-        )
-    st.markdown(f'<div class="detail-card">{rows_html}</div>', unsafe_allow_html=True)
-
-
 def render_detail(ticker):
     info = load_info(ticker)
     cal = load_calendar(ticker)
@@ -522,7 +369,7 @@ def render_detail(ticker):
             icon="⚠️",
         )
 
-    name = info.get("longName") or info.get("shortName") or ticker
+    name = info.get("longName") or info.get("shortName") or TICKER_NAMES.get(ticker, ticker)
     sector = info.get("sector")
     industry = info.get("industry")
     summary = info.get("longBusinessSummary") or "Sin descripción disponible."
@@ -602,12 +449,144 @@ def render_detail(ticker):
     """, unsafe_allow_html=True)
 
 
-if selected:
-    left, right = st.columns([1, 1.7], gap="medium")
-    with left:
-        render_calendar()
-    with right:
-        st.markdown('<div class="section-title">Detalle</div>', unsafe_allow_html=True)
-        render_detail(selected)
+if st.session_state.selected_ticker:
+    st.markdown('<div class="section-title">Detalle</div>', unsafe_allow_html=True)
+    render_detail(st.session_state.selected_ticker)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TASA UST 10Y (recuadro chico)
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">Tasa de referencia</div>', unsafe_allow_html=True)
+rate_col, _ = st.columns([1, 3])
+with rate_col:
+    rate_ch = compute_changes(history.get(TREASURY_10Y, pd.Series(dtype=float)))
+    if rate_ch is None:
+        st.markdown(
+            '<div class="rate-box"><div class="rl">UST 10Y</div>'
+            '<div class="rv">—</div><div class="rd">Sin datos</div></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        bps = (rate_ch["last"] - rate_ch["prev"]) * 100
+        st.markdown(
+            '<div class="rate-box">'
+            '<div class="rl">Tasa UST 10Y</div>'
+            f'<div class="rv">{rate_ch["last"]:.2f}%</div>'
+            f'<div class="rd">{bps:+.0f} pb hoy · YTD {fmt_pct(rate_ch["ytd"])}</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMODITIES
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">Commodities</div>', unsafe_allow_html=True)
+commodity_rows = []
+for sym, name in COMMODITIES:
+    ch = compute_changes(history.get(sym, pd.Series(dtype=float)))
+    commodity_rows.append({
+        "Ticker": sym,
+        "Empresa": name,
+        "Precio": ch["last"] if ch else None,
+        "Día %": ch["daily"] if ch else None,
+        "YTD %": ch["ytd"] if ch else None,
+    })
+st.dataframe(
+    build_watchlist_table(commodity_rows),
+    hide_index=True,
+    width='stretch',
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CALENDARIO (formato calendario mensual)
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">Calendario</div>', unsafe_allow_html=True)
+
+today = dt.date.today()
+cal_events = []
+for t in TICKERS:
+    cal = load_calendar(t)
+    if not cal:
+        continue
+    for label, key in [("Earnings", "Earnings Date"), ("Dividendo", "Dividend Date"),
+                        ("Ex-Dividendo", "Ex-Dividend Date")]:
+        val = cal.get(key)
+        if not val:
+            continue
+        dates = val if isinstance(val, (list, tuple)) else [val]
+        eps_est = cal.get("Earnings Average") if key == "Earnings Date" else None
+        for d in dates:
+            if d is None:
+                continue
+            if isinstance(d, dt.datetime):
+                d = d.date()
+            # Yahoo a veces devuelve la última fecha de dividendo histórica (no
+            # la próxima) para papeles sin calendario regular de dividendos —
+            # se descartan eventos pasados para que el calendario muestre solo
+            # lo que viene.
+            if d < today:
+                continue
+            cal_events.append((d, t, label, eps_est))
+
+if not cal_events:
+    st.warning(
+        "No se pudieron cargar los eventos del calendario. Yahoo Finance a veces "
+        "limita temporalmente estas consultas desde servidores en la nube — probá "
+        "tocar 🔄 Actualizar en un momento.",
+        icon="⚠️",
+    )
 else:
-    render_calendar()
+    events_by_date = {}
+    for d, t, label, eps_est in cal_events:
+        events_by_date.setdefault(d, []).append((t, label, eps_est))
+
+    st.markdown(
+        '<div class="cal-legend">'
+        '<span><i style="background:#1e40af;"></i>Earnings</span>'
+        '<span><i style="background:#15803d;"></i>Dividendo</span>'
+        '<span><i style="background:#92400e;"></i>Ex-Dividendo</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    months = sorted({(d.year, d.month) for d in events_by_date})
+    cal_gen = calmod.Calendar(firstweekday=0)
+
+    month_cards_html = ""
+    for year, month in months:
+        weeks = cal_gen.monthdatescalendar(year, month)
+        weekday_html = "".join(f'<div class="cal-weekday">{w}</div>' for w in DIAS_ES)
+        days_html = ""
+        for week in weeks:
+            for day in week:
+                in_month = day.month == month
+                day_events = events_by_date.get(day, [])
+                badges = ""
+                for t, label, eps_est in day_events[:3]:
+                    cls = "earn" if label == "Earnings" else ("div" if label == "Dividendo" else "exdiv")
+                    tip = f"{t} · {label}"
+                    if eps_est is not None:
+                        tip += f" · EPS est. {eps_est:.2f}"
+                    badges += f'<span class="cal-badge {cls}" title="{tip}">{t}</span>'
+                extra = len(day_events) - 3
+                if extra > 0:
+                    badges += f'<span class="cal-badge more">+{extra}</span>'
+                cell_cls = "cal-day"
+                if not in_month:
+                    cell_cls += " cal-day-out"
+                if day_events:
+                    cell_cls += " cal-day-has"
+                days_html += (
+                    f'<div class="{cell_cls}">'
+                    f'<div class="cal-daynum">{day.day}</div>'
+                    f'<div class="cal-events">{badges}</div>'
+                    f'</div>'
+                )
+        month_cards_html += (
+            f'<div class="cal-month-card">'
+            f'<div class="cal-month-title">{MESES_ES[month]} {year}</div>'
+            f'<div class="cal-weekdays">{weekday_html}</div>'
+            f'<div class="cal-days">{days_html}</div>'
+            f'</div>'
+        )
+    st.markdown(f'<div class="cal-months">{month_cards_html}</div>', unsafe_allow_html=True)
