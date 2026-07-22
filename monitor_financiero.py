@@ -1,4 +1,6 @@
 import datetime as dt
+import random
+import time
 
 import pandas as pd
 import streamlit as st
@@ -140,21 +142,30 @@ def load_history(tickers: tuple) -> dict:
     return out
 
 
+def _fetch_with_retries(fn, attempts=3):
+    """Yahoo's quoteSummary endpoint (used by .get_info()/.calendar) is more
+    prone to transient rate-limiting than the chart endpoint, especially from
+    shared cloud IPs. Retry a few times with backoff before giving up."""
+    for i in range(attempts):
+        try:
+            result = fn()
+            if result:
+                return result
+        except Exception:
+            pass
+        if i < attempts - 1:
+            time.sleep(1.0 * (i + 1) + random.uniform(0, 0.5))
+    return {}
+
+
 @st.cache_data(ttl=CACHE_TTL_INFO, show_spinner=False)
 def load_info(ticker: str) -> dict:
-    try:
-        return yf.Ticker(ticker).get_info() or {}
-    except Exception:
-        return {}
+    return _fetch_with_retries(lambda: yf.Ticker(ticker).get_info() or {})
 
 
 @st.cache_data(ttl=CACHE_TTL_INFO, show_spinner=False)
 def load_calendar(ticker: str) -> dict:
-    try:
-        cal = yf.Ticker(ticker).calendar
-        return cal or {}
-    except Exception:
-        return {}
+    return _fetch_with_retries(lambda: yf.Ticker(ticker).calendar or {})
 
 
 @st.cache_data(ttl=CACHE_TTL_NEWS, show_spinner=False)
@@ -379,7 +390,12 @@ def render_calendar():
                 events.append((d, t, label))
     events.sort(key=lambda e: e[0])
     if not events:
-        st.caption("No hay eventos fechados disponibles.")
+        st.warning(
+            "No se pudieron cargar los eventos del calendario. Yahoo Finance a veces "
+            "limita temporalmente estas consultas desde servidores en la nube — probá "
+            "tocar 🔄 Actualizar en un momento.",
+            icon="⚠️",
+        )
         return
     rows_html = ""
     for d, t, label in events:
@@ -397,6 +413,14 @@ def render_detail(ticker):
     info = load_info(ticker)
     cal = load_calendar(ticker)
     ch = changes_by_ticker.get(ticker)
+
+    if not info:
+        st.warning(
+            f"No se pudo obtener la información fundamental de {ticker} en este momento. "
+            "Yahoo Finance a veces limita temporalmente estas consultas desde servidores "
+            "en la nube — probá tocar 🔄 Actualizar en un momento.",
+            icon="⚠️",
+        )
 
     name = info.get("longName") or info.get("shortName") or ticker
     sector = info.get("sector")
