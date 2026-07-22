@@ -36,6 +36,28 @@ TICKER_NAMES = {
     "IREN": "IREN Limited",
 }
 
+TICKER_DOMAINS = {
+    "NVDA": "nvidia.com",
+    "AAPL": "apple.com",
+    "GOOGL": "abc.xyz",
+    "MSFT": "microsoft.com",
+    "AMZN": "amazon.com",
+    "TSM": "tsmc.com",
+    "META": "meta.com",
+    "MELI": "mercadolibre.com",
+    "CEG": "constellationenergy.com",
+    "FCX": "fcx.com",
+    "NU": "nu.com.br",
+    "VALE": "vale.com",
+    "B": "barrick.com",
+    "VST": "vistracorp.com",
+    "GLOB": "globant.com",
+    "SKHY": "skhynix.com",
+    "NFLX": "netflix.com",
+    "JPM": "jpmorganchase.com",
+    "IREN": "iren.com",
+}
+
 COMMODITIES = [
     ("CL=F", "WTI Crudo"),
     ("BZ=F", "Brent Crudo"),
@@ -101,6 +123,59 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .pos { background: #dcfce7; color: #15803d; }
 .neg { background: #fee2e2; color: #b91c1c; }
 .flat { background: #f1f5f9; color: #64748b; }
+
+/* Tablas (watchlist / commodities) */
+.tbl-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; margin-bottom: 4px; }
+.tbl-header {
+    display: grid; align-items: center; column-gap: 10px; padding: 10px 16px;
+    background: linear-gradient(135deg, #0f2d5e 0%, #1a4fa8 100%); color: white;
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+}
+.tbl-header-standalone {
+    border: 1px solid #0f2d5e; border-bottom: none; border-radius: 14px 14px 0 0;
+}
+.tbl-row {
+    display: grid; align-items: center; column-gap: 10px; padding: 9px 16px;
+    border-bottom: 1px solid #f1f5f9; font-size: 0.84rem; color: #1e293b;
+}
+.tbl-row:last-child { border-bottom: none; }
+.tbl-row:hover { background: #f8fbff; }
+.tbl-logo {
+    width: 22px; height: 22px; border-radius: 5px; object-fit: contain;
+    background: white; border: 1px solid #eef2f7; padding: 2px;
+    font-size: 0; color: transparent;
+}
+.tbl-ticker { font-weight: 800; color: #0f2d5e; font-family: 'IBM Plex Mono', monospace; }
+.tbl-price { font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
+.tbl-pct { font-family: 'IBM Plex Mono', monospace; font-weight: 700; }
+.tbl-pct.pos { color: #15803d; }
+.tbl-pct.neg { color: #b91c1c; }
+.tbl-pct.flat { color: #64748b; }
+
+/* Filas clickeables del watchlist (botón real disfrazado de link) */
+.st-key-wl_rows { background: white; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 14px 14px; padding: 4px 6px; }
+.st-key-wl_rows [data-testid="stVerticalBlock"] { gap: 0 !important; }
+.st-key-wl_rows [data-testid="stHorizontalBlock"] {
+    align-items: center; column-gap: 10px; padding: 6px 10px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.st-key-wl_rows [data-testid="stHorizontalBlock"]:last-child { border-bottom: none; }
+.st-key-wl_rows [data-testid="stHorizontalBlock"]:hover { background: #f8fbff; border-radius: 8px; }
+.st-key-wl_rows [data-testid="stButton"] button {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    color: #0f2d5e !important; font-weight: 800 !important; font-family: 'IBM Plex Mono', monospace !important;
+    padding: 2px 0 !important; text-align: left !important; justify-content: flex-start !important;
+}
+.st-key-wl_rows [data-testid="stButton"] button:hover { color: #1a4fa8 !important; text-decoration: underline; }
+.st-key-wl_rows [data-testid="stButton"] button p { font-size: 0.86rem !important; }
+
+/* Botón cerrar detalle (X) */
+.st-key-detail_close button {
+    background: #f1f5f9 !important; border: none !important; border-radius: 50% !important;
+    color: #475569 !important; font-weight: 700 !important; width: 34px !important; height: 34px !important;
+    padding: 0 !important;
+}
+.st-key-detail_close button:hover { background: #e2e8f0 !important; color: #0f2d5e !important; }
 
 /* Detail panel */
 .detail-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; margin-bottom: 14px; }
@@ -273,28 +348,18 @@ def fmt_date(d):
     return str(d)
 
 
-def style_pct_col(v):
-    if pd.isna(v):
-        return "color:#94a3b8;"
-    if v > 0.005:
-        return "color:#15803d; font-weight:700;"
-    if v < -0.005:
-        return "color:#b91c1c; font-weight:700;"
-    return "color:#64748b; font-weight:700;"
+def pct_html(v):
+    if v is None:
+        return '<span class="tbl-pct flat">—</span>'
+    return f'<span class="tbl-pct {pct_class(v)}">{fmt_pct(v)}</span>'
 
 
-def build_watchlist_table(rows):
-    df = pd.DataFrame(rows, columns=["Ticker", "Empresa", "Precio", "Día %", "YTD %"])
-    styled = (
-        df.style
-        .map(style_pct_col, subset=["Día %", "YTD %"])
-        .format({
-            "Precio": lambda v: fmt_money(v) if pd.notna(v) else "—",
-            "Día %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-            "YTD %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-        })
-    )
-    return styled
+def logo_html(ticker):
+    domain = TICKER_DOMAINS.get(ticker)
+    if not domain:
+        return ""
+    url = f"https://logo.clearbit.com/{domain}?size=64"
+    return f'<img class="tbl-logo" src="{url}" onerror="this.style.visibility=\'hidden\'">'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -325,33 +390,41 @@ with head_r:
 # ─────────────────────────────────────────────────────────────────────────────
 # WATCHLIST
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
 ALL_SYMBOLS = TICKERS + [sym for sym, _ in COMMODITIES] + [TREASURY_10Y]
 history = load_history(tuple(ALL_SYMBOLS))
-changes_by_ticker = {}
+changes_by_ticker = {t: compute_changes(history.get(t, pd.Series(dtype=float))) for t in TICKERS}
 
-watchlist_rows = []
-for ticker in TICKERS:
-    ch = compute_changes(history.get(ticker, pd.Series(dtype=float)))
-    changes_by_ticker[ticker] = ch
-    watchlist_rows.append({
-        "Ticker": ticker,
-        "Empresa": TICKER_NAMES.get(ticker, ticker),
-        "Precio": ch["last"] if ch else None,
-        "Día %": ch["daily"] if ch else None,
-        "YTD %": ch["ytd"] if ch else None,
-    })
+WL_COLS = [0.45, 1.3, 2.4, 1.5, 1.15, 1.15]
 
-watchlist_event = st.dataframe(
-    build_watchlist_table(watchlist_rows),
-    hide_index=True,
-    width='stretch',
-    on_select="rerun",
-    selection_mode="single-row",
-    key="watchlist_table",
-)
-selected_rows = list(watchlist_event.selection.rows) if watchlist_event and watchlist_event.selection else []
-st.session_state.selected_ticker = TICKERS[selected_rows[0]] if selected_rows else None
+
+def render_watchlist():
+    cols_css = " ".join(f"{c}fr" for c in WL_COLS)
+    st.markdown(
+        f'<div class="tbl-header tbl-header-standalone" style="grid-template-columns: {cols_css};">'
+        '<div></div><div>Ticker</div><div>Empresa</div><div>Precio</div><div>Día %</div><div>YTD %</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    with st.container(key="wl_rows"):
+        for ticker in TICKERS:
+            ch = changes_by_ticker.get(ticker)
+            logo_c, tick_c, name_c, price_c, day_c, ytd_c = st.columns(WL_COLS)
+            with logo_c:
+                st.markdown(logo_html(ticker), unsafe_allow_html=True)
+            with tick_c:
+                if st.button(ticker, key=f"wl_btn_{ticker}"):
+                    st.session_state.selected_ticker = ticker
+                    st.rerun()
+            with name_c:
+                st.markdown(TICKER_NAMES.get(ticker, ticker))
+            with price_c:
+                price_html = fmt_money(ch["last"]) if ch else "—"
+                st.markdown(f'<span class="tbl-price">{price_html}</span>', unsafe_allow_html=True)
+            with day_c:
+                st.markdown(pct_html(ch["daily"] if ch else None), unsafe_allow_html=True)
+            with ytd_c:
+                st.markdown(pct_html(ch["ytd"] if ch else None), unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DETALLE (solo si hay un ticker seleccionado)
@@ -360,6 +433,15 @@ def render_detail(ticker):
     info = load_info(ticker)
     cal = load_calendar(ticker)
     ch = changes_by_ticker.get(ticker)
+
+    title_col, close_col = st.columns([6, 1])
+    with title_col:
+        st.markdown('<div class="section-title" style="margin:0 0 8px;">Detalle</div>', unsafe_allow_html=True)
+    with close_col:
+        with st.container(key="detail_close"):
+            if st.button("✕", key="detail_close_btn"):
+                st.session_state.selected_ticker = None
+                st.rerun()
 
     if not info:
         st.warning(
@@ -450,8 +532,15 @@ def render_detail(ticker):
 
 
 if st.session_state.selected_ticker:
-    st.markdown('<div class="section-title">Detalle</div>', unsafe_allow_html=True)
-    render_detail(st.session_state.selected_ticker)
+    wl_col, detail_col = st.columns([1, 1.3], gap="large")
+    with wl_col:
+        st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
+        render_watchlist()
+    with detail_col:
+        render_detail(st.session_state.selected_ticker)
+else:
+    st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
+    render_watchlist()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TASA UST 10Y (recuadro chico)
@@ -481,21 +570,23 @@ with rate_col:
 # COMMODITIES
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Commodities</div>', unsafe_allow_html=True)
-commodity_rows = []
+COM_COLS_CSS = "2.6fr 1.5fr 1.2fr 1.2fr"
+commodity_html = (
+    f'<div class="tbl-header" style="grid-template-columns: {COM_COLS_CSS};">'
+    '<div>Empresa</div><div>Precio</div><div>Día %</div><div>YTD %</div></div>'
+)
 for sym, name in COMMODITIES:
     ch = compute_changes(history.get(sym, pd.Series(dtype=float)))
-    commodity_rows.append({
-        "Ticker": sym,
-        "Empresa": name,
-        "Precio": ch["last"] if ch else None,
-        "Día %": ch["daily"] if ch else None,
-        "YTD %": ch["ytd"] if ch else None,
-    })
-st.dataframe(
-    build_watchlist_table(commodity_rows),
-    hide_index=True,
-    width='stretch',
-)
+    price_html = fmt_money(ch["last"]) if ch else "—"
+    commodity_html += (
+        f'<div class="tbl-row" style="grid-template-columns: {COM_COLS_CSS};">'
+        f'<div>{name}</div>'
+        f'<div class="tbl-price">{price_html}</div>'
+        f'<div>{pct_html(ch["daily"] if ch else None)}</div>'
+        f'<div>{pct_html(ch["ytd"] if ch else None)}</div>'
+        '</div>'
+    )
+st.markdown(f'<div class="tbl-card">{commodity_html}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CALENDARIO (formato calendario mensual)
