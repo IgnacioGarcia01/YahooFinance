@@ -10,6 +10,27 @@ import yfinance as yf
 # CONFIGURACIÓN
 # ─────────────────────────────────────────────────────────────────────────────
 TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
+
+COMMODITIES = [
+    ("CL=F", "WTI Crudo"),
+    ("BZ=F", "Brent Crudo"),
+    ("NG=F", "Gas Natural"),
+    ("RB=F", "Gasolina RBOB"),
+    ("GC=F", "Oro"),
+    ("SI=F", "Plata"),
+    ("HG=F", "Cobre"),
+    ("ZS=F", "Soja"),
+    ("ZC=F", "Maíz"),
+    ("ZW=F", "Trigo Chicago"),
+    ("KC=F", "Café"),
+    ("CC=F", "Cacao"),
+    ("LE=F", "Ganado Vivo"),
+    ("BTC-USD", "Bitcoin"),
+    ("ETH-USD", "Ethereum"),
+]
+
+TREASURY_10Y = "^TNX"
+
 CACHE_TTL_PRICES = 300   # 5 min
 CACHE_TTL_INFO = 900     # 15 min
 CACHE_TTL_NEWS = 300     # 5 min
@@ -120,6 +141,27 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .cal-tick { font-family: 'IBM Plex Mono', monospace; font-weight: 700; color: #0f2d5e; }
 .cal-evt { color: #64748b; }
 .cal-date { font-weight: 700; color: #1a4fa8; }
+
+/* Commodities grid */
+.commodity-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 4px; }
+.commodity-card {
+    background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 12px 14px 10px;
+}
+.commodity-sym { font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+.commodity-name { font-size: 0.86rem; font-weight: 700; color: #0f2d5e; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.commodity-price { font-size: 1.05rem; font-weight: 700; color: #1e293b; font-family: 'IBM Plex Mono', monospace; margin-bottom: 8px; }
+.commodity-deltas { display: flex; gap: 5px; flex-wrap: wrap; }
+
+/* Tasa 10Y recuadro */
+.rate-box {
+    background: linear-gradient(135deg, #0f2d5e 0%, #1a4fa8 100%);
+    color: white; border-radius: 14px; padding: 16px 20px; max-width: 260px;
+    box-shadow: 0 6px 20px rgba(15,45,94,0.25);
+}
+.rate-box .rl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1.2px; opacity: 0.75; font-weight: 700; }
+.rate-box .rv { font-size: 1.9rem; font-weight: 800; font-family: 'IBM Plex Mono', monospace; margin-top: 4px; }
+.rate-box .rd { font-size: 0.74rem; margin-top: 6px; font-family: 'IBM Plex Mono', monospace; opacity: 0.95; }
 
 .stButton>button { border-radius: 8px; }
 </style>
@@ -335,7 +377,8 @@ else:
 # TICKERS
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
-history = load_history(tuple(TICKERS))
+ALL_SYMBOLS = TICKERS + [sym for sym, _ in COMMODITIES] + [TREASURY_10Y]
+history = load_history(tuple(ALL_SYMBOLS))
 changes_by_ticker = {}
 
 cols = st.columns(len(TICKERS))
@@ -365,6 +408,58 @@ for col, ticker in zip(cols, TICKERS):
         if st.button(label, key=f"sel_{ticker}", use_container_width=True):
             st.session_state.selected_ticker = None if is_active else ticker
             st.rerun()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TASA UST 10Y (recuadro chico)
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">Tasa de referencia</div>', unsafe_allow_html=True)
+rate_col, _ = st.columns([1, 3])
+with rate_col:
+    rate_ch = compute_changes(history.get(TREASURY_10Y, pd.Series(dtype=float)))
+    if rate_ch is None:
+        st.markdown(
+            '<div class="rate-box"><div class="rl">UST 10Y</div>'
+            '<div class="rv">—</div><div class="rd">Sin datos</div></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        bps = (rate_ch["last"] - rate_ch["prev"]) * 100
+        st.markdown(
+            '<div class="rate-box">'
+            '<div class="rl">Tasa UST 10Y</div>'
+            f'<div class="rv">{rate_ch["last"]:.2f}%</div>'
+            f'<div class="rd">{bps:+.0f} pb hoy · YTD {fmt_pct(rate_ch["ytd"])}</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMODITIES
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">Commodities</div>', unsafe_allow_html=True)
+commodity_cards_html = ""
+for sym, name in COMMODITIES:
+    ch = compute_changes(history.get(sym, pd.Series(dtype=float)))
+    if ch is None:
+        commodity_cards_html += (
+            '<div class="commodity-card">'
+            f'<div class="commodity-sym">{sym}</div>'
+            f'<div class="commodity-name">{name}</div>'
+            '<div class="commodity-price">—</div>'
+            '</div>'
+        )
+    else:
+        commodity_cards_html += (
+            '<div class="commodity-card">'
+            f'<div class="commodity-sym">{sym}</div>'
+            f'<div class="commodity-name">{name}</div>'
+            f'<div class="commodity-price">{fmt_money(ch["last"])}</div>'
+            '<div class="commodity-deltas">'
+            f'<span class="pill {pct_class(ch["daily"])}"><span class="pill-lbl">Día</span>{fmt_pct(ch["daily"])}</span>'
+            f'<span class="pill {pct_class(ch["ytd"])}"><span class="pill-lbl">YTD</span>{fmt_pct(ch["ytd"])}</span>'
+            '</div></div>'
+        )
+st.markdown(f'<div class="commodity-grid">{commodity_cards_html}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CALENDARIO + DETALLE
