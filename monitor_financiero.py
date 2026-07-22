@@ -36,27 +36,6 @@ TICKER_NAMES = {
     "IREN": "IREN Limited",
 }
 
-TICKER_DOMAINS = {
-    "NVDA": "nvidia.com",
-    "AAPL": "apple.com",
-    "GOOGL": "abc.xyz",
-    "MSFT": "microsoft.com",
-    "AMZN": "amazon.com",
-    "TSM": "tsmc.com",
-    "META": "meta.com",
-    "MELI": "mercadolibre.com",
-    "CEG": "constellationenergy.com",
-    "FCX": "fcx.com",
-    "NU": "nu.com.br",
-    "VALE": "vale.com",
-    "B": "barrick.com",
-    "VST": "vistracorp.com",
-    "GLOB": "globant.com",
-    "SKHY": "skhynix.com",
-    "NFLX": "netflix.com",
-    "JPM": "jpmorganchase.com",
-    "IREN": "iren.com",
-}
 
 COMMODITIES = [
     ("CL=F", "WTI Crudo"),
@@ -355,10 +334,7 @@ def pct_html(v):
 
 
 def logo_html(ticker):
-    domain = TICKER_DOMAINS.get(ticker)
-    if not domain:
-        return ""
-    url = f"https://logo.clearbit.com/{domain}?size=64"
+    url = f"https://financialmodelingprep.com/image-stock/{ticker}.png"
     return f'<img class="tbl-logo" src="{url}" onerror="this.style.visibility=\'hidden\'">'
 
 
