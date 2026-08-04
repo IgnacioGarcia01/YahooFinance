@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +242,13 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid #e2e8f0; }
 .stTabs [data-baseweb="tab"] { background: transparent; color: #64748b; border: none; font-weight: 600; padding: 10px 18px; font-size: 0.85rem; }
 .stTabs [aria-selected="true"] { background: rgba(15,45,94,0.08) !important; color: #0f2d5e !important; border-bottom: 2px solid #0f2d5e !important; border-radius: 6px 6px 0 0; }
+
+/* Watchlist personal */
+div[class*="st-key-wl_rm_"] button {
+    background: transparent !important; border: none !important; color: #cbd5e1 !important;
+    font-weight: 700 !important; padding: 0 !important; min-height: 22px !important; box-shadow: none !important;
+}
+div[class*="st-key-wl_rm_"] button:hover { color: #b91c1c !important; }
 
 /* Trades */
 div[class*="st-key-tc_"] { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px 18px; margin-bottom: 14px; }
@@ -862,6 +870,42 @@ if "selected_ticker" not in st.session_state:
     st.session_state.selected_ticker = None
 
 # ─────────────────────────────────────────────────────────────────────────────
+# WATCHLIST PERSONAL (persistida en cookie, privada por navegador)
+# ─────────────────────────────────────────────────────────────────────────────
+WATCHLIST_COOKIE = "custom_watchlist"
+
+
+def default_watchlist_items():
+    return [{"ticker": t, "name": TICKER_NAMES.get(t, t)} for t in TICKERS]
+
+
+def load_personal_watchlist():
+    raw = st.context.cookies.get(WATCHLIST_COOKIE)
+    if raw:
+        try:
+            data = json.loads(urllib.parse.unquote(raw))
+            if isinstance(data, list) and data:
+                return data
+        except Exception:
+            pass
+    return default_watchlist_items()
+
+
+def save_personal_watchlist(items):
+    payload = urllib.parse.quote(json.dumps(items, ensure_ascii=False))
+    components.html(
+        f'<script>document.cookie = "{WATCHLIST_COOKIE}={payload}; max-age=31536000; path=/; SameSite=Lax";</script>',
+        height=0,
+    )
+    # Da tiempo a que el iframe del componente cargue y ejecute el script
+    # antes de que el próximo st.rerun() desmonte el árbol de la página.
+    time.sleep(0.3)
+
+
+if "watchlist_items" not in st.session_state:
+    st.session_state.watchlist_items = load_personal_watchlist()
+
+# ─────────────────────────────────────────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────────────────────────────────────────
 head_l, head_r = st.columns([5, 1])
@@ -886,25 +930,49 @@ with tab_monitor:
     # ─────────────────────────────────────────────────────────────────────────
     # WATCHLIST
     # ─────────────────────────────────────────────────────────────────────────
-    ALL_SYMBOLS = TICKERS + [sym for sym, _ in COMMODITIES] + [sym for _, sym, _ in TREASURY_MATURITIES]
+    personal_tickers = [item["ticker"] for item in st.session_state.watchlist_items]
+    ALL_SYMBOLS = personal_tickers + [sym for sym, _ in COMMODITIES] + [sym for _, sym, _ in TREASURY_MATURITIES]
     history = load_history(tuple(ALL_SYMBOLS))
-    changes_by_ticker = {t: compute_changes(history.get(t, pd.Series(dtype=float))) for t in TICKERS}
+    changes_by_ticker = {t: compute_changes(history.get(t, pd.Series(dtype=float))) for t in personal_tickers}
 
-    WL_COLS = [0.45, 1.3, 2.4, 1.5, 1.15, 1.15]
+    WL_COLS = [0.45, 1.3, 2.2, 1.5, 1.1, 1.1, 0.45]
+
+
+    def render_watchlist_add_form():
+        with st.expander("➕ Agregar acción a mi watchlist"):
+            query = st.text_input("Ticker o nombre de la empresa", key="wl_add_query")
+            results = search_tickers(query) if query else []
+            existing = {i["ticker"] for i in st.session_state.watchlist_items}
+            if results:
+                options = {f"{r['symbol']} — {r['name']} ({r['exchange']})": r for r in results}
+                choice = st.selectbox("Resultados", list(options.keys()), key="wl_add_choice")
+                picked = options[choice]
+                if picked["symbol"] in existing:
+                    st.caption("Ya está en tu watchlist.")
+                elif st.button("Agregar", key="wl_add_btn"):
+                    new_items = st.session_state.watchlist_items + [
+                        {"ticker": picked["symbol"], "name": picked["name"]}
+                    ]
+                    st.session_state.watchlist_items = new_items
+                    save_personal_watchlist(new_items)
+                    st.rerun()
+            elif query:
+                st.caption("Sin resultados. Probá con el ticker exacto.")
 
 
     def render_watchlist():
         cols_css = " ".join(f"{c}fr" for c in WL_COLS)
         st.markdown(
             f'<div class="tbl-header tbl-header-standalone" style="grid-template-columns: {cols_css};">'
-            '<div></div><div>Ticker</div><div>Empresa</div><div>Precio</div><div>Día %</div><div>YTD %</div>'
+            '<div></div><div>Ticker</div><div>Empresa</div><div>Precio</div><div>Día %</div><div>YTD %</div><div></div>'
             '</div>',
             unsafe_allow_html=True,
         )
         with st.container(key="wl_rows"):
-            for ticker in TICKERS:
+            for item in st.session_state.watchlist_items:
+                ticker = item["ticker"]
                 ch = changes_by_ticker.get(ticker)
-                logo_c, tick_c, name_c, price_c, day_c, ytd_c = st.columns(WL_COLS)
+                logo_c, tick_c, name_c, price_c, day_c, ytd_c, rm_c = st.columns(WL_COLS)
                 with logo_c:
                     st.markdown(logo_html(ticker), unsafe_allow_html=True)
                 with tick_c:
@@ -912,7 +980,7 @@ with tab_monitor:
                         st.session_state.selected_ticker = ticker
                         st.rerun()
                 with name_c:
-                    st.markdown(TICKER_NAMES.get(ticker, ticker))
+                    st.markdown(item.get("name", ticker))
                 with price_c:
                     price_html = fmt_money(ch["last"]) if ch else "—"
                     st.markdown(f'<span class="tbl-price">{price_html}</span>', unsafe_allow_html=True)
@@ -920,6 +988,14 @@ with tab_monitor:
                     st.markdown(pct_html(ch["daily"] if ch else None), unsafe_allow_html=True)
                 with ytd_c:
                     st.markdown(pct_html(ch["ytd"] if ch else None), unsafe_allow_html=True)
+                with rm_c:
+                    if st.button("✕", key=f"wl_rm_{ticker}"):
+                        new_items = [i for i in st.session_state.watchlist_items if i["ticker"] != ticker]
+                        st.session_state.watchlist_items = new_items
+                        save_personal_watchlist(new_items)
+                        if st.session_state.selected_ticker == ticker:
+                            st.session_state.selected_ticker = None
+                        st.rerun()
 
 
     # ─────────────────────────────────────────────────────────────────────────────
@@ -1037,11 +1113,13 @@ with tab_monitor:
         wl_col, detail_col = st.columns([1, 1.3], gap="large")
         with wl_col:
             st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
+            render_watchlist_add_form()
             render_watchlist()
         with detail_col:
             render_detail(st.session_state.selected_ticker)
     else:
         st.markdown('<div class="section-title">Watchlist</div>', unsafe_allow_html=True)
+        render_watchlist_add_form()
         render_watchlist()
 
     # ─────────────────────────────────────────────────────────────────────────────
