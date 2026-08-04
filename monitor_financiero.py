@@ -248,6 +248,7 @@ div[class*="st-key-tc_"] { background: white; border: 1px solid #e2e8f0; border-
 .trade-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .trade-card-id { display: flex; align-items: center; gap: 8px; }
 .trade-name { font-size: 0.78rem; color: #64748b; }
+.author-tag { font-size: 0.62rem; font-weight: 700; color: #475569; background: #eef2f7; padding: 2px 8px; border-radius: 10px; margin-left: 4px; white-space: nowrap; }
 .trade-meta { font-size: 0.72rem; color: #94a3b8; font-family: 'IBM Plex Mono', monospace; line-height: 1.5; margin-bottom: 10px; }
 .trade-metric { background: #f8fafc; border: 1px solid #eef2f7; border-radius: 10px; padding: 8px 10px; text-align: center; margin-bottom: 10px; }
 .trade-metric .k { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; font-weight: 700; }
@@ -390,6 +391,8 @@ def logo_html(ticker):
 # TRADES: PERSISTENCIA Y HELPERS DE DATOS
 # ─────────────────────────────────────────────────────────────────────────────
 TRADES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trades.json")
+AUTORES = ["Pedro", "Camilo", "Augusto", "Ignacio"]
+PLACEHOLDER_AUTOR = "— Elegir —"
 
 
 def load_trades() -> list:
@@ -570,8 +573,8 @@ def _delete_button(tid: str):
     confirm_key = f"confirm_del_{tid}"
     if st.session_state.get(confirm_key):
         if st.button("¿Seguro? \U0001F5D1", key=f"del_confirm_{tid}", width='stretch'):
-            st.session_state.trades = [t for t in st.session_state.trades if t["id"] != tid]
-            save_trades(st.session_state.trades)
+            trades = [t for t in load_trades() if t["id"] != tid]
+            save_trades(trades)
             st.session_state.pop(confirm_key, None)
             st.rerun()
     else:
@@ -591,7 +594,8 @@ def render_open_trade_card(view: dict):
             f'<div class="trade-card-head">'
             f'<div class="trade-card-id">{logo_html(trade["ticker"])}'
             f'<span class="tbl-ticker">{trade["ticker"]}</span>'
-            f'<span class="trade-name">{trade.get("name", "")}</span></div>'
+            f'<span class="trade-name">{trade.get("name", "")}</span>'
+            f'<span class="author-tag">\U0001F464 {trade.get("author", "—")}</span></div>'
             f'<div class="pill {pct_class(view["pct"])}">{fmt_pct(view["pct"])}</div>'
             f'</div>'
             f'<div class="trade-meta">Compra {buy_date.strftime("%d/%m/%Y")} · '
@@ -663,13 +667,14 @@ def render_close_trade_form(trade: dict):
             if not final_price:
                 st.error("Ingresá un precio de venta válido.")
             else:
-                for t in st.session_state.trades:
+                trades = load_trades()
+                for t in trades:
                     if t["id"] == tid:
                         t["status"] = "closed"
                         t["sell_date"] = sell_date.isoformat()
                         t["sell_price"] = float(final_price)
                         t["sell_manual"] = bool(manual_sell or not auto_price)
-                save_trades(st.session_state.trades)
+                save_trades(trades)
                 st.session_state.closing_trade_id = None
                 st.rerun()
     with c2:
@@ -691,7 +696,8 @@ def render_closed_trade_card(view: dict):
             f'<div class="trade-card-head">'
             f'<div class="trade-card-id">{logo_html(trade["ticker"])}'
             f'<span class="tbl-ticker">{trade["ticker"]}</span>'
-            f'<span class="trade-name">{trade.get("name", "")}</span></div>'
+            f'<span class="trade-name">{trade.get("name", "")}</span>'
+            f'<span class="author-tag">\U0001F464 {trade.get("author", "—")}</span></div>'
             f'<div class="pill {pct_class(view["pct"])}">{fmt_pct(view["pct"])}</div>'
             f'</div>'
             f'<div class="trade-meta">Compra {buy_date.strftime("%d/%m/%Y")} {fmt_money(trade["buy_price"])}{buy_note}'
@@ -772,17 +778,22 @@ def render_new_trade_form():
                 "Precio de compra (manual)", min_value=0.0, step=0.01, key="nt_manual_price",
             )
 
+        author = st.selectbox("Quién hizo el trade", [PLACEHOLDER_AUTOR] + AUTORES, key="nt_author")
+
         c1, c2 = st.columns(2)
         with c1:
             if st.button("Guardar trade", key="nt_submit", type="primary", width='stretch'):
                 final_price = buy_price_manual if (manual_buy or not auto_price) else auto_price
                 if not ticker or not final_price:
                     st.error("Elegí un ticker y un precio válido.")
+                elif author == PLACEHOLDER_AUTOR:
+                    st.error("Elegí quién hizo el trade.")
                 else:
                     new_trade = {
                         "id": uuid.uuid4().hex[:10],
                         "ticker": ticker,
                         "name": name or ticker,
+                        "author": author,
                         "status": "open",
                         "buy_date": buy_date.isoformat(),
                         "buy_price": float(final_price),
@@ -791,8 +802,9 @@ def render_new_trade_form():
                         "sell_price": None,
                         "sell_manual": False,
                     }
-                    st.session_state.trades.append(new_trade)
-                    save_trades(st.session_state.trades)
+                    trades = load_trades()
+                    trades.append(new_trade)
+                    save_trades(trades)
                     st.session_state.show_new_trade_form = False
                     st.rerun()
         with c2:
@@ -802,8 +814,6 @@ def render_new_trade_form():
 
 
 def render_trades_tab():
-    if "trades" not in st.session_state:
-        st.session_state.trades = load_trades()
     if "show_new_trade_form" not in st.session_state:
         st.session_state.show_new_trade_form = False
     if "closing_trade_id" not in st.session_state:
@@ -827,7 +837,7 @@ def render_trades_tab():
     if st.session_state.show_new_trade_form:
         render_new_trade_form()
 
-    trades = st.session_state.trades
+    trades = load_trades()
     open_trades = sorted((t for t in trades if t["status"] == "open"), key=lambda t: t["buy_date"], reverse=True)
     closed_trades = sorted((t for t in trades if t["status"] == "closed"), key=lambda t: t["sell_date"], reverse=True)
     open_views = [build_trade_view(t) for t in open_trades]
