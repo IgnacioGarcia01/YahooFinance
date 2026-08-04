@@ -13,7 +13,9 @@ import urllib.parse
 import urllib.request
 import uuid
 
+import gspread
 import streamlit.components.v1 as components
+from google.oauth2.service_account import Credentials
 from streamlit_autorefresh import st_autorefresh
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -398,9 +400,61 @@ def logo_html(ticker):
 # TRADES: PERSISTENCIA Y HELPERS DE DATOS
 # ─────────────────────────────────────────────────────────────────────────────
 TRADES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trades.json")
+TRADES_SHEET_ID = "1BH00iS8fyyG1kylb5xw8uTK5EsSYAnxIkpXLKVuz-TM"
+TRADES_SHEET_FIELDS = [
+    "id", "ticker", "name", "status", "buy_date", "buy_price",
+    "buy_manual", "sell_date", "sell_price", "sell_manual",
+]
 
 
-def load_trades() -> list:
+@st.cache_resource(show_spinner=False)
+def get_trades_worksheet():
+    """None si no hay credenciales configuradas (modo desarrollo local sin
+    secrets.toml): en ese caso se usa trades.json como respaldo."""
+    if "gcp_service_account" not in st.secrets:
+        return None
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scopes)
+    client = gspread.authorize(creds)
+    return client.open_by_key(TRADES_SHEET_ID).sheet1
+
+
+def _bool_from_cell(v) -> bool:
+    return str(v).strip().upper() == "TRUE"
+
+
+def _row_to_trade(row: dict) -> dict:
+    sell_price = row.get("sell_price")
+    return {
+        "id": str(row.get("id", "")),
+        "ticker": row.get("ticker", ""),
+        "name": row.get("name", ""),
+        "status": row.get("status", "open"),
+        "buy_date": str(row.get("buy_date", "")),
+        "buy_price": float(row.get("buy_price") or 0),
+        "buy_manual": _bool_from_cell(row.get("buy_manual")),
+        "sell_date": str(row["sell_date"]) if row.get("sell_date") else None,
+        "sell_price": float(sell_price) if sell_price not in (None, "") else None,
+        "sell_manual": _bool_from_cell(row.get("sell_manual")),
+    }
+
+
+def _trade_to_row(trade: dict) -> list:
+    return [
+        trade.get("id", ""),
+        trade.get("ticker", ""),
+        trade.get("name", ""),
+        trade.get("status", "open"),
+        trade.get("buy_date", ""),
+        trade.get("buy_price", ""),
+        "TRUE" if trade.get("buy_manual") else "FALSE",
+        trade.get("sell_date") or "",
+        trade.get("sell_price") if trade.get("sell_price") is not None else "",
+        "TRUE" if trade.get("sell_manual") else "FALSE",
+    ]
+
+
+def _load_trades_local() -> list:
     if not os.path.exists(TRADES_FILE):
         return []
     try:
@@ -410,9 +464,37 @@ def load_trades() -> list:
         return []
 
 
-def save_trades(trades: list) -> None:
+def _save_trades_local(trades: list) -> None:
     with open(TRADES_FILE, "w", encoding="utf-8") as f:
         json.dump(trades, f, indent=2, ensure_ascii=False)
+
+
+def load_trades() -> list:
+    ws = get_trades_worksheet()
+    if ws is None:
+        return _load_trades_local()
+    try:
+        # UNFORMATTED_VALUE: evita que gspread intente parsear los numeros a
+        # partir del texto mostrado (rompe con configuracion regional de coma
+        # decimal, ej. "212,03" se leia como 21203).
+        records = ws.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        return [_row_to_trade(r) for r in records]
+    except Exception as e:
+        st.error(f"No se pudo leer la planilla de trades: {e}")
+        return []
+
+
+def save_trades(trades: list) -> None:
+    ws = get_trades_worksheet()
+    if ws is None:
+        _save_trades_local(trades)
+        return
+    try:
+        rows = [TRADES_SHEET_FIELDS] + [_trade_to_row(t) for t in trades]
+        ws.clear()
+        ws.update(rows)
+    except Exception as e:
+        st.error(f"No se pudo guardar en la planilla de trades: {e}")
 
 
 @st.cache_data(show_spinner=False, ttl=300)
